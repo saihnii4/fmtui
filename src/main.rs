@@ -1,23 +1,23 @@
 use std::{
-    collections::HashMap,
     io::{self, stdout},
     time::Duration,
 };
 
-use serde::{Deserialize, Serialize};
+mod fmtui;
+
+use fmtui::structs::*;
 
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     crossterm::{
         event, execute,
-        style::Stylize,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
-    widgets::{Block, List},
+    symbols,
+    widgets::{Block, List, Padding},
     Frame, Terminal,
 };
-use reqwest::blocking::ClientBuilder;
-use serde_json::Value;
+use reqwest::blocking::{Client, ClientBuilder};
 
 trait Screen {
     fn draw(&self, f: &mut Frame);
@@ -43,16 +43,34 @@ enum State {
 struct App {
     _exit: bool,
     state: State,
+    client: Client,
+    tracks: Vec<Track>,
     internal: Box<dyn Screen>,
 }
 
 impl App {
     fn run<B: Backend>(mut self, t: &mut Terminal<B>) -> io::Result<()> {
         while !self._exit {
-            t.draw(|f| self.internal.draw(f))?;
+            // TODO: multi-screen API
+            // t.draw(|f| self.internal.draw(f))?;
+            t.draw(|f| self._draw(f));
             self._poll_events();
         }
         Ok(())
+    }
+
+    fn _draw(&self, f: &mut Frame) {
+        let block = Block::bordered()
+            .border_set(symbols::border::DOUBLE)
+            .title_bottom("fmtui")
+            .padding(Padding::new(5, 5, 5, 5));
+        let list = List::new(
+            self.tracks
+                .iter()
+                .map(|t| format!("{} — {}", t.name, t.artist.text)),
+        )
+        .block(block);
+        f.render_widget(list, f.area());
     }
 
     fn _poll_events(&mut self) {
@@ -67,6 +85,9 @@ impl App {
                         event::KeyCode::Char('q') => {
                             self._exit = true;
                         }
+                        event::KeyCode::Char('r') => {
+                            self.refresh();
+                        }
                         _ => {}
                     },
                     _ => {}
@@ -75,42 +96,11 @@ impl App {
             }
         }
     }
-}
 
-impl Default for App {
-    fn default() -> Self {
-        App {
-            internal: Box::new(Main {}),
-            state: State::Main,
-            _exit: false,
-        }
-    }
-}
+    fn refresh(&mut self) {
 
-// #[derive(Serialize, Deserialize)]
-// struct
-
-#[derive(Serialize, Deserialize)]
-struct Album {
-    #[serde(rename(deserialize = "#text"))]
-    text: String,
-    mbid: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Track {
-    album: Album,
-
-    #[serde(flatten)]
-    extra: HashMap<String, Value>,
-}
-
-fn main() -> io::Result<()> {
-    // enable_raw_mode()?;
-    // execute!(stdout(), EnterAlternateScreen)?;
-
-    if let Ok(client) = ClientBuilder::new().build() {
-        let res = client
+        let res = self
+            .client
             .execute(req)
             .unwrap()
             .json::<serde_json::Value>()
@@ -127,17 +117,33 @@ fn main() -> io::Result<()> {
             .unwrap()
             .to_owned();
 
-        let a: Vec<Track> = serde_json::from_value(test).unwrap();
-
-        println!("{}", a[0].album.text);
-    } else {
-        panic!("bruh")
+        self.tracks = serde_json::from_value(test).unwrap();
     }
+}
 
-    // let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-    // App::default().run(&mut terminal)?;
+impl Default for App {
+    fn default() -> Self {
+        let client = ClientBuilder::new()
+            .build()
+            .unwrap_or_else(|_err| panic!("bruh"));
+        App {
+            internal: Box::new(Main {}),
+            state: State::Main,
+            _exit: false,
+            tracks: vec![],
+            client: client,
+        }
+    }
+}
 
-    // execute!(stdout(), LeaveAlternateScreen)?;
-    // disable_raw_mode()?;
+fn main() -> io::Result<()> {
+    enable_raw_mode()?;
+    execute!(stdout(), EnterAlternateScreen)?;
+
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    App::default().run(&mut terminal)?;
+
+    execute!(stdout(), LeaveAlternateScreen)?;
+    disable_raw_mode()?;
     Ok(())
 }
