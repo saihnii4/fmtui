@@ -1,10 +1,12 @@
 use std::{
+    env,
     io::{self, stdout},
     time::Duration,
 };
 
 mod fmtui;
 
+use dotenv::dotenv;
 use fmtui::structs::*;
 
 use ratatui::{
@@ -46,6 +48,7 @@ struct App {
     client: Client,
     tracks: Vec<Track>,
     internal: Box<dyn Screen>,
+    api_key: String,
 }
 
 impl App {
@@ -53,7 +56,7 @@ impl App {
         while !self._exit {
             // TODO: multi-screen API
             // t.draw(|f| self.internal.draw(f))?;
-            t.draw(|f| self._draw(f));
+            t.draw(|f| self._draw(f))?;
             self._poll_events();
         }
         Ok(())
@@ -98,6 +101,7 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        let req = self.client.get(format!("https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}&format=json&limit=20", "nablasleep", self.api_key)).build().unwrap();
 
         let res = self
             .client
@@ -119,6 +123,11 @@ impl App {
 
         self.tracks = serde_json::from_value(test).unwrap();
     }
+
+    // TODO: AppBuilder
+    fn api_key(&mut self, api_key: String) {
+        self.api_key = api_key;
+    }
 }
 
 impl Default for App {
@@ -132,6 +141,7 @@ impl Default for App {
             _exit: false,
             tracks: vec![],
             client: client,
+            api_key: String::default(),
         }
     }
 }
@@ -140,8 +150,12 @@ fn main() -> io::Result<()> {
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
 
+    dotenv().unwrap();
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-    App::default().run(&mut terminal)?;
+    let mut app = App::default();
+    app.api_key(String::from(env::var("API_KEY").unwrap()));
+    app.run(&mut terminal)?;
 
     execute!(stdout(), LeaveAlternateScreen)?;
     disable_raw_mode()?;
