@@ -1,163 +1,102 @@
-use std::{
-    env,
-    io::{self, stdout},
-    time::Duration,
-};
-
-mod fmtui;
-
-use dotenv::dotenv;
-use fmtui::structs::*;
+use std::io::Result;
 
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
-    crossterm::{
-        event, execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    },
+    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    layout::{Constraint, Direction, Flex, Layout, Rect},
+    style::{Style, Stylize},
     symbols,
-    widgets::{Block, List, Padding},
-    Frame, Terminal,
+    widgets::{Block, Borders, List, Widget},
+    DefaultTerminal, Frame,
 };
-use reqwest::blocking::{Client, ClientBuilder};
 
-trait Screen {
-    fn draw(&self, f: &mut Frame);
-}
-
-struct Main {}
-
-impl Screen for Main {
-    fn draw(&self, f: &mut Frame) {
-        let block = Block::bordered().title_top("nablasleep");
-        let list = List::new(["testing", "testing2"])
-            .highlight_symbol(">")
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-            .block(block);
-        f.render_widget(list, f.area());
-    }
-}
-
-enum State {
-    Main,
-}
-
+#[derive(Debug, Default)]
 struct App {
-    _exit: bool,
-    state: State,
-    client: Client,
-    tracks: Vec<Track>,
-    internal: Box<dyn Screen>,
-    api_key: String,
+    exit: bool,
 }
 
 impl App {
-    fn run<B: Backend>(mut self, t: &mut Terminal<B>) -> io::Result<()> {
-        while !self._exit {
-            // TODO: multi-screen API
-            // t.draw(|f| self.internal.draw(f))?;
-            t.draw(|f| self._draw(f))?;
-            self._poll_events();
+    fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        while !self.exit {
+            terminal.draw(|f| self.render(f))?;
+            self.handle_events()?;
         }
+
         Ok(())
     }
 
-    fn _draw(&self, f: &mut Frame) {
-        let block = Block::bordered()
-            .border_set(symbols::border::DOUBLE)
-            .title_bottom("fmtui")
-            .padding(Padding::new(5, 5, 5, 5));
-        let list = List::new(
-            self.tracks
-                .iter()
-                .map(|t| format!("{} — {}", t.name, t.artist.text)),
-        )
-        .block(block);
-        f.render_widget(list, f.area());
+    fn render(&self, frame: &mut Frame) {
+        frame.render_widget(self, frame.area());
     }
 
-    fn _poll_events(&mut self) {
-        if let Ok(ready) = event::poll(Duration::from_millis(100)) {
-            if !ready {
-                return;
+    fn handle_events(&mut self) -> Result<()> {
+        match event::read()? {
+            Event::Key(key_ev) => {
+                self.handle_key_ev(key_ev);
             }
-
-            match event::read().unwrap() {
-                event::Event::Key(key_ev) => match key_ev.kind {
-                    event::KeyEventKind::Press => match key_ev.code {
-                        event::KeyCode::Char('q') => {
-                            self._exit = true;
-                        }
-                        event::KeyCode::Char('r') => {
-                            self.refresh();
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                },
-                _ => {}
-            }
+            _ => {}
         }
+
+        Ok(())
     }
 
-    fn refresh(&mut self) {
-        let req = self.client.get(format!("https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}&format=json&limit=20", "nablasleep", self.api_key)).build().unwrap();
-
-        let res = self
-            .client
-            .execute(req)
-            .unwrap()
-            .json::<serde_json::Value>()
-            .unwrap();
-
-        let test = res
-            .as_object()
-            .unwrap()
-            .to_owned()
-            .get("recenttracks")
-            .unwrap()
-            .to_owned()
-            .get("track")
-            .unwrap()
-            .to_owned();
-
-        self.tracks = serde_json::from_value(test).unwrap();
-    }
-
-    // TODO: AppBuilder
-    fn api_key(&mut self, api_key: String) {
-        self.api_key = api_key;
-    }
-}
-
-impl Default for App {
-    fn default() -> Self {
-        let client = ClientBuilder::new()
-            .build()
-            .unwrap_or_else(|_err| panic!("bruh"));
-        App {
-            internal: Box::new(Main {}),
-            state: State::Main,
-            _exit: false,
-            tracks: vec![],
-            client: client,
-            api_key: String::default(),
+    fn handle_key_ev(&mut self, key_ev: KeyEvent) {
+        match key_ev.code {
+            KeyCode::Char('q') => {
+                self.exit = true;
+            }
+            KeyCode::Up => {
+                todo!("TODO");
+            }
+            _ => {}
         }
     }
 }
 
-fn main() -> io::Result<()> {
-    enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
+fn render_centered(
+    parent_area: Rect,
+    component: impl Widget,
+) -> impl FnOnce() -> impl FnOnce() -> Result<()> {
+    let [horiz_area] = Layout::horizontal([Constraint::Percentage(100)])
+        .flex(Flex::Center)
+        .areas(parent_area);
+    let [centered_area] = Layout::vertical([Constraint::Percentage(100)])
+        .flex(Flex::Center)
+        .areas(horiz_area);
 
-    dotenv().unwrap();
+    return |buf| {
+        move || {
+            component.render(centered_area, buf);
+            Ok(())
+        }
+    };
+}
 
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-    let mut app = App::default();
-    app.api_key(String::from(env::var("API_KEY").unwrap()));
-    app.run(&mut terminal)?;
+impl Widget for &App {
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
+        Self: Sized,
+    {
+        let layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Fill(1), Constraint::Fill(2)])
+            .split(area);
 
-    execute!(stdout(), LeaveAlternateScreen)?;
-    disable_raw_mode()?;
-    Ok(())
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(Style::default().red())
+            .border_set(symbols::border::ROUNDED);
+
+        List::new(vec!["Testing", "Testing", "Testing"])
+            .block(block.clone())
+            .render(layout[0], buf);
+
+        List::new(vec!["Testing", "Testing", "Testing"])
+            .block(block.clone())
+            .render(layout[1], buf);
+    }
+}
+
+fn main() -> Result<()> {
+    let mut terminal = ratatui::init();
+    App::default().run(&mut terminal)
 }
