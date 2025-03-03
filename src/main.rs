@@ -28,6 +28,7 @@ impl App {
         frame.render_widget(self, frame.area());
     }
 
+
     fn handle_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key_ev) => {
@@ -55,7 +56,7 @@ impl App {
 fn render_centered(
     parent_area: Rect,
     component: impl Widget,
-) -> impl FnOnce() -> impl FnOnce() -> Result<()> {
+) -> impl FnOnce() -> (impl FnOnce() -> Result<()>) {
     let [horiz_area] = Layout::horizontal([Constraint::Percentage(100)])
         .flex(Flex::Center)
         .areas(parent_area);
