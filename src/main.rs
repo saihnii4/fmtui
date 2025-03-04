@@ -1,6 +1,7 @@
 use std::io::Result;
 
 use ratatui::{
+    buffer::Buffer,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     layout::{Constraint, Direction, Flex, Layout, Rect},
     style::{Style, Stylize},
@@ -28,7 +29,6 @@ impl App {
         frame.render_widget(self, frame.area());
     }
 
-
     fn handle_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key_ev) => {
@@ -53,25 +53,6 @@ impl App {
     }
 }
 
-fn render_centered(
-    parent_area: Rect,
-    component: impl Widget,
-) -> impl FnOnce() -> (impl FnOnce() -> Result<()>) {
-    let [horiz_area] = Layout::horizontal([Constraint::Percentage(100)])
-        .flex(Flex::Center)
-        .areas(parent_area);
-    let [centered_area] = Layout::vertical([Constraint::Percentage(100)])
-        .flex(Flex::Center)
-        .areas(horiz_area);
-
-    return |buf| {
-        move || {
-            component.render(centered_area, buf);
-            Ok(())
-        }
-    };
-}
-
 impl Widget for &App {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
@@ -82,18 +63,27 @@ impl Widget for &App {
             .constraints(vec![Constraint::Fill(1), Constraint::Fill(2)])
             .split(area);
 
-        let block = Block::new()
+        let [new_area] = Layout::horizontal([Constraint::Length(2)])
+            .flex(Flex::Center)
+            .areas(layout[0]);
+
+        Block::new()
             .borders(Borders::ALL)
             .border_style(Style::default().red())
-            .border_set(symbols::border::ROUNDED);
-
-        List::new(vec!["Testing", "Testing", "Testing"])
-            .block(block.clone())
+            .border_set(symbols::border::ROUNDED)
             .render(layout[0], buf);
 
-        List::new(vec!["Testing", "Testing", "Testing"])
-            .block(block.clone())
+        Block::new()
+            .borders(Borders::ALL)
+            .border_style(Style::default().red())
+            .border_set(symbols::border::ROUNDED)
             .render(layout[1], buf);
+
+        let l_list = List::new(vec!["Testing", "Testing", "Testing"]);
+        let r_list = List::new(vec!["Testing", "Testing", "Testing"]);
+
+        l_list.render(new_area, buf);
+        r_list.render(layout[1], buf);
     }
 }
 
